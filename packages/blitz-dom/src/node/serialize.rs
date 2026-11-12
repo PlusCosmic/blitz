@@ -1,7 +1,7 @@
 //! Serialization of nodes to HTML, and of inline `<svg>` subtrees to SVG source for usvg.
 
 use html_escape::{encode_quoted_attribute_to_string, encode_text_to_string};
-use markup5ever::{QualName, ns};
+use markup5ever::{QualName, local_name, ns};
 use style_traits::values::ToCss;
 use stylo_taffy::CopyStyleGetters;
 
@@ -20,6 +20,8 @@ struct SerializeOpts {
     resolve_current_color: bool,
     /// Declare the `xlink` prefix on the root element so that the output is well-formed XML
     declare_xlink_ns: bool,
+    /// Replace the root element's `width`/`height` attributes with this size in px
+    root_size: Option<(f32, f32)>,
 }
 
 impl SerializeOpts {
@@ -28,6 +30,7 @@ impl SerializeOpts {
             style,
             resolve_current_color: false,
             declare_xlink_ns: false,
+            root_size: None,
         }
     }
 }
@@ -104,11 +107,19 @@ impl Node {
     /// `currentColor` resolved against each element's computed `color`.
     #[cfg(feature = "svg")]
     pub(crate) fn svg_source(&self) -> String {
+        self.svg_source_with_root_size(None)
+    }
+
+    /// Serializes this `<svg>` subtree like [`Self::svg_source`], optionally with the
+    /// root `width`/`height` replaced by the given size in px.
+    #[cfg(feature = "svg")]
+    pub(crate) fn svg_source_with_root_size(&self, root_size: Option<(f32, f32)>) -> String {
         let mut output = String::new();
         let opts = SerializeOpts {
             style: OutputStyle::Normal,
             resolve_current_color: true,
             declare_xlink_ns: true,
+            root_size,
         };
         self.write_outer_html_in_style(&mut output, opts, 0);
         output
@@ -180,7 +191,19 @@ impl Node {
                     writer.push('"');
                 }
 
+                let root_size = opts.root_size.filter(|_| nesting == 0);
+                if let Some((width, height)) = root_size {
+                    writer.push_str(&format!(" width=\"{width}\" height=\"{height}\""));
+                }
+
                 for attr in data.attrs() {
+                    if root_size.is_some()
+                        && attr.name.ns == ns!()
+                        && (attr.name.local == local_name!("width")
+                            || attr.name.local == local_name!("height"))
+                    {
+                        continue;
+                    }
                     writer.push(' ');
                     write_attr_name(&attr.name, writer);
                     writer.push_str("=\"");
