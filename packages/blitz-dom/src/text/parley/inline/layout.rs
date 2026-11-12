@@ -19,8 +19,8 @@ use super::super::TextBrush;
 use super::super::{TextContext, stylo_to_parley};
 use super::{TextLayout, build};
 use crate::text::{
-    BoxMeasure, ContentWidths, FloatClear, FloatSide, InlineLayoutEngine, LineExclusions,
-    LinesExtent, Placement,
+    BoxMeasure, ContentWidths, FloatClear, FloatSide, InlineLayoutEngine, LineArea, LineExclusions,
+    LineFlow, LinesExtent, LinesInputs, Placement,
 };
 #[cfg(feature = "floats")]
 use crate::text::{FloatRequest, LineSlot, SlotSearch};
@@ -83,9 +83,13 @@ fn retry_line_slot(
 }
 
 impl InlineLayoutEngine for TextLayout {
+    const SETS_WRITING_MODES: bool = false;
+    const READS_ROOM_ABOVE: bool = false;
+
     fn build_layouts(
         cx: &mut TextContext,
         nodes: &crate::NodeTree,
+        _cascade: crate::text::DocumentCascade<'_>,
         scale: f32,
         layouts: &mut [(NodeId, Box<Self>)],
     ) {
@@ -130,12 +134,9 @@ impl InlineLayoutEngine for TextLayout {
         self.holds_nothing()
     }
 
-    fn prepare(
-        &mut self,
-        sizes: &[BoxMeasure],
-        style: Option<&::style::properties::ComputedValues>,
-    ) {
-        self.prepare_lines(sizes, style);
+    fn prepare(&mut self, doc: &mut crate::BaseDocument, root: NodeId, lines: LinesInputs<'_>) {
+        let style = doc.nodes[root].primary_styles();
+        self.prepare_lines(lines.sizes, style.as_deref().map(|style| &**style));
     }
 
     #[inline]
@@ -145,26 +146,57 @@ impl InlineLayoutEngine for TextLayout {
 
     fn break_lines(
         &mut self,
-        width: f32,
+        _cx: &mut TextContext,
+        area: LineArea,
         padding_border: f32,
         style: Option<&::style::properties::ComputedValues>,
         exclusions: &mut impl LineExclusions,
     ) {
-        self.break_into_lines(width, padding_border, style, exclusions);
+        self.break_into_lines(area.width, padding_border, style, exclusions);
     }
 
     #[inline]
-    fn extent(&self) -> LinesExtent {
+    fn extent(&self, _end_padding: f32) -> LinesExtent {
         self.lines_extent()
     }
 
     #[inline]
-    fn set_block_offset(&mut self, offset: f32) {
-        self.block_offset = offset;
+    fn set_frame(&mut self, block_offset: f32, _content: taffy::Size<f32>) {
+        self.block_offset = block_offset;
     }
 
     fn placements(&self) -> impl Iterator<Item = Placement> {
         self.box_placements()
+    }
+
+    #[inline]
+    fn line_flow(&self) -> LineFlow {
+        LineFlow::Horizontal
+    }
+
+    #[inline]
+    fn place_on_page(&self, along: [f32; 2], across: [f32; 2]) -> (f32, f32) {
+        (along[0], across[0])
+    }
+
+    #[inline]
+    fn room_below(&self) -> f32 {
+        0.0
+    }
+
+    #[inline]
+    fn float_node(key: u64) -> Option<NodeId> {
+        Some(NodeId::from_u64(key))
+    }
+
+    #[inline]
+    fn inline_shift(
+        _doc: &crate::BaseDocument,
+        _node: NodeId,
+        _containing: taffy::Size<f32>,
+        _rtl: bool,
+    ) -> taffy::Point<f32> {
+        taffy::Point::ZERO
     }
 }
 
@@ -567,6 +599,7 @@ impl TextLayout {
                         } else {
                             metrics.block_min_coord
                         },
+                        rtl: None,
                     };
                     line_has_in_flow_content |= ibox.kind == parley::InlineBoxKind::InFlow;
                     Some(placement)
