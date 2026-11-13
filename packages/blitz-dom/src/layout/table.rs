@@ -744,24 +744,32 @@ fn collect_table_cells(
             // A length `width`, as the width of the cell's border box
             let length_width = style.size.width.into_option().map(|len| len + extra);
 
-            // Column widths from `<col>` elements take precedence over cell widths
-            let col_needs_width =
-                (col as usize) >= columns.len() || columns[col as usize].max.is_auto();
             // The fixed table layout algorithm takes column widths from the first row, the auto one from the cells
             // in any row that span a single column.
             let sets_width = if is_fixed { *row == 1 } else { colspan == 1 };
-            if sets_width && col_needs_width {
+            // In the fixed layout, a first-row cell spanning several columns divides its
+            // width over them (CSS 2.1 §17.5.2.1).
+            let span = colspan.max(1);
+            for col in (col..col.saturating_add(span)).filter(|_| sets_width) {
+                // Column widths from `<col>` elements take precedence over cell widths
+                let col_needs_width =
+                    (col as usize) >= columns.len() || columns[col as usize].max.is_auto();
+                if !col_needs_width {
+                    continue;
+                }
+                let share = span as f32;
                 let column: TrackSizingFunction = match style.size.width.tag() {
                     taffy::CompactLength::LENGTH_TAG => {
-                        style_helpers::length(style.size.width.value() + extra)
+                        style_helpers::length((style.size.width.value() + extra) / share)
                     }
                     taffy::CompactLength::PERCENT_TAG => {
+                        let percent = style.size.width.value() / share;
                         // Resolved in `build_table_context` once the column count is known
                         // (and, in the automatic layout algorithm, whether the table has a
                         // width for it to resolve against)
-                        percent_columns.push((col, style.size.width.value(), extra));
+                        percent_columns.push((col, percent, extra / share));
                         if is_fixed {
-                            style_helpers::percent(style.size.width.value())
+                            style_helpers::percent(percent)
                         } else {
                             style_helpers::auto()
                         }
@@ -770,7 +778,8 @@ fn collect_table_cells(
                     // Dimension values are always length, percentage, auto or calc(),
                     // so any other tag is a calc() value. Pass it through so that
                     // Taffy resolves it against the table's inner width.
-                    _ => style.size.width.into(),
+                    _ if span == 1 => style.size.width.into(),
+                    _ => style_helpers::auto(),
                 };
                 if (col as usize) < columns.len() {
                     if !column.max.is_auto() {
