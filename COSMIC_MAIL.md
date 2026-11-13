@@ -28,6 +28,9 @@ Fixes on top (not upstream):
   min-content width, so a table too narrow for its columns' widths shrinks them (CSS Tables 3)
   instead of overflowing.
 - **Fix-up for #1482 with #1387**: when several rows give a column a percentage, the largest wins.
+- **Fix-up for #1482**: with no `auto` column, the columns with a width share out the rest of the
+  table (CSS 2.1 §17.5.2.2; #1486 does the same in the fixed layout): a lone `width="50%"` cell
+  fills its table again, and 100px + 100px in a 600px table gives 300/300.
 - **Ignore `min-height`/`max-height` on table cells**, as browsers do.
 - **Fixed layout: a spanning first-row cell's width is divided over its columns** (CSS 2.1
   §17.5.2.1), rather than all going to its first column.
