@@ -416,6 +416,9 @@ pub(crate) fn build_table_context(
                     *column = at_least_content(percent_track(column.max.into_raw().value(), 0.0));
                 }
             }
+            // Cells in any row give percentages here: the largest one for a column wins, so
+            // apply them smallest first.
+            percent_columns.sort_by(|a, b| a.1.total_cmp(&b.1));
             for (col_idx, percent, extra) in percent_columns {
                 if let Some(column) = column_sizes.get_mut(col_idx as usize) {
                     *column = at_least_content(percent_track(percent, extra));

@@ -89,3 +89,17 @@ fn col_percentages_count_as_cells_do() {
     let w = widths(cols, "", "", "");
     assert_eq!(w, (141.0, 18.0, 141.0));
 }
+
+#[test]
+fn the_largest_percentage_in_a_column_wins() {
+    for (first, second) in [("20%", "40%"), ("40%", "20%")] {
+        let doc = layout(&format!(
+            r#"<body style="margin:0"><table width="300" style="border-spacing:0">
+            <tr><td id="l" width="{first}" style="padding:0"></td><td style="padding:0"></td></tr>
+            <tr><td width="{second}" style="padding:0"></td><td style="padding:0"></td></tr>
+            </table></body>"#
+        ));
+        let id = doc.query_selector("#l").unwrap().expect("#l");
+        assert_eq!(doc.get_node(id).unwrap().final_layout().size.width, 120.0);
+    }
+}
