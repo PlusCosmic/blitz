@@ -62,6 +62,7 @@ mod stale_node_mapping;
 mod style_property_invalidation;
 mod svg_attr_sizing;
 mod svg_background_size;
+mod table_auto_length_width;
 mod table_fixed_extra_width;
 mod table_percent_columns;
 mod text_selection_anonymous_block;

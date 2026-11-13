@@ -70,9 +70,11 @@ pub struct TableCell {
     pub column: u16,
     colspan: u16,
     /// In the auto table layout algorithm, the larger of the cell's and its column's
-    /// length `width`. That width is a minimum: the column still grows to fit the
-    /// min-content width of its cells, but not to their max-content width. Both of the
-    /// cell's intrinsic widths are therefore its min-content width, and no less than this.
+    /// length `width`. The column grows to fit the min-content width of its cells, but not
+    /// to their max-content width: the cell's max-content width is its min-content width,
+    /// and no less than this. Its min-content width is its contents', so a table too narrow
+    /// for its columns' widths shrinks them, down to their contents (CSS Tables 3, "outer
+    /// max-content width of a table-cell in a constrained column").
     min_width: Option<f32>,
     style: taffy::Style<Atom>,
 }
@@ -372,10 +374,11 @@ pub(crate) fn build_table_context(
             }
         }
     } else {
-        // In the auto table layout algorithm a column's length width is a minimum: the
-        // column still grows to fit the min-content width of the cells that originate in
-        // it (see `TableCell::min_width`). Those cells report that width as both of their
-        // intrinsic widths, so a `fit-content()` track capped at the column's width grows
+        // In the auto table layout algorithm a column's length width is its preferred
+        // width: the column still grows to fit the min-content width of the cells that
+        // originate in it (see `TableCell::min_width`), and shrinks to it in a table too
+        // narrow for the widths. Those cells report that width as their max-content
+        // width, so a `fit-content()` track capped at the column's width grows
         // to fit them, but not to fit cells spanning it, which widen the other columns
         // rather than this one. A column without such cells keeps its fixed track.
         let mut minimum_widths = vec![None; column_sizes.len()];
@@ -896,10 +899,13 @@ impl taffy::LayoutPartialTree for TableTreeWrapper<'_, '_> {
     ) -> taffy::LayoutOutput {
         let cell = &self.ctx.cells[usize::from(node_id)];
         let node_id = crate::taffy_node_id(cell.node_id);
-        // Measuring the intrinsic width of a cell with a minimum width (see
+        // Measuring the intrinsic width of a cell with a length width (see
         // `TableCell::min_width`): the cell's own `width` would fix the width of its box,
-        // so it is ignored to measure the contents.
+        // so it is ignored to measure the contents. The width raises the cell's
+        // max-content width only: its min-content width stays that of its contents.
         if let (Some(min_width), None) = (cell.min_width, inputs.known_dimensions.width) {
+            let wants_min_content =
+                inputs.available_space.width == taffy::AvailableSpace::MinContent;
             let inputs = taffy::tree::LayoutInput {
                 sizing_mode: taffy::SizingMode::ContentSize,
                 available_space: taffy::Size {
@@ -909,7 +915,9 @@ impl taffy::LayoutPartialTree for TableTreeWrapper<'_, '_> {
                 ..inputs
             };
             let mut output = self.doc.compute_child_layout(node_id, inputs);
-            output.size.width = output.size.width.max(min_width);
+            if !wants_min_content {
+                output.size.width = output.size.width.max(min_width);
+            }
             return output;
         }
         self.doc.compute_child_layout(node_id, inputs)
