@@ -68,6 +68,47 @@ fn stylesheets_take_unitless_lengths_and_any_case_classes_in_quirks_mode() {
     assert_eq!(height(STANDARDS, body), 0.0);
 }
 
+/// An inline box with no text of its own (here the block's root inline box) does not
+/// contribute its line-height to the line in quirks and limited-quirks mode.
+#[test]
+fn line_height_quirk_drops_the_strut_of_boxes_without_text() {
+    let inline_block = r#"<div id="t" style="line-height:40px"><span style="display:inline-block;width:10px;height:10px"></span></div>"#;
+    assert_eq!(height(QUIRKS, inline_block), 10.0);
+    assert_eq!(height(LIMITED, inline_block), 10.0);
+    assert!(height(STANDARDS, inline_block) >= 30.0);
+
+    // Text only in a child span: lines are as tall as the span's line-height.
+    let span = r#"<div id="t" style="line-height:40px"><span style="font-size:10px;line-height:10px">a<br>b<br>c</span></div>"#;
+    assert_eq!(height(QUIRKS, span), 30.0);
+    assert_eq!(height(LIMITED, span), 30.0);
+    assert!(height(STANDARDS, span) >= 120.0);
+
+    // An outer span without text of its own does not count either.
+    let nested = r#"<div id="t" style="line-height:40px"><span style="line-height:60px"><span style="font-size:10px;line-height:10px">a<br>b</span></span></div>"#;
+    assert_eq!(height(QUIRKS, nested), 20.0);
+    assert!(height(STANDARDS, nested) >= 120.0);
+}
+
+#[test]
+fn line_height_quirk_keeps_the_strut_of_boxes_with_text() {
+    // Text directly in the block, on the first line only: the strut counts on that line.
+    let first_line = r#"<div id="t" style="line-height:40px">a<br><span style="font-size:10px;line-height:10px">b</span></div>"#;
+    assert_eq!(height(QUIRKS, first_line), 50.0);
+    // A forced break is text: the empty second line keeps the strut.
+    let breaks = r#"<div id="t" style="line-height:40px">a<br><br>b</div>"#;
+    assert_eq!(height(QUIRKS, breaks), 120.0);
+    // A span with inline-axis padding keeps its line-height.
+    let padded = r#"<div id="t" style="line-height:10px"><span style="line-height:40px;padding:0 4px"><span style="font-size:10px">a</span></span></div>"#;
+    assert!(height(QUIRKS, padded) >= 40.0);
+}
+
+#[test]
+fn line_height_quirk_keeps_a_cells_baseline_for_its_own_text() {
+    // The root's own text sits on the root's baseline whatever the cell's `vertical-align`.
+    let cell = r#"<table style="border-spacing:0"><tr><td id="t" style="padding:0;line-height:20px"><span style="display:inline-block;width:10px;height:10px"></span>a</td></tr></table>"#;
+    assert_eq!(height(QUIRKS, cell), height(STANDARDS, cell));
+}
+
 #[test]
 fn tables_do_not_inherit_font_size_in_quirks_mode() {
     let table = r#"<div style="font-size:40px;line-height:40px"><table id="t" style="border-spacing:0"><tr><td style="padding:0">a</td></tr></table></div>"#;

@@ -18,6 +18,8 @@ use style::{
 };
 use thin_vec::ThinVec;
 
+use selectors::matching::QuirksMode;
+
 use crate::{
     BaseDocument, ElementData, Node, NodeData,
     layout::damage::{
@@ -1038,6 +1040,7 @@ pub(crate) fn build_inline_layout_into(
     text_layout: &mut TextLayout,
     scale: f32,
     inline_context_root_node_id: NodeId,
+    quirks_mode: QuirksMode,
 ) {
     // Get the inline context's root node's text styles
     let root_node = &nodes[inline_context_root_node_id];
@@ -1055,8 +1058,28 @@ pub(crate) fn build_inline_layout_into(
             ..Default::default()
         });
 
+    // The line height calculation quirk (quirks and limited-quirks mode): an inline box, the
+    // root inline box (the "strut") included, only counts towards the height of the lines on
+    // which it has text of its own, not of lines holding only images, inline blocks or its
+    // children's text. Boxes with inline-axis padding or border always count.
+    // https://quirks.spec.whatwg.org/#the-line-height-calculation-quirk
+    //
+    // Parley puts the root span box on every line, and any other span box on the lines that
+    // hold its or a descendant's text. So such spans get a zero line-height, as the quirk
+    // specifies, and their own text (and forced breaks) a span of its own carrying their real
+    // line-height: that span box is on exactly the lines that hold the text.
+    let line_height_quirk = quirks_mode != QuirksMode::NoQuirks;
+    let mut root_style = parley_style.clone();
+    // The root inline box has no padding or border (the block's are not its).
+    let root_line_height = line_height_quirk.then(|| {
+        std::mem::replace(
+            &mut root_style.line_height,
+            parley::LineHeight::Absolute(0.0),
+        )
+    });
+
     // Create a parley tree builder
-    let mut builder = layout_ctx.tree_builder(font_ctx, scale, true, &parley_style);
+    let mut builder = layout_ctx.tree_builder(font_ctx, scale, true, &root_style);
     if let Some(style) = root_node_style.as_deref() {
         builder.set_base_direction(stylo_to_parley::base_direction(
             style.clone_direction(),
@@ -1089,7 +1112,14 @@ pub(crate) fn build_inline_layout_into(
                 builder.push_text(&format!("{char} "));
                 builder.pop_style_span();
             }
-            Marker::String(str) => builder.push_text(str),
+            Marker::String(str) => match root_line_height {
+                Some(line_height) => {
+                    builder.push_style_modification_span(&own_text_style(line_height));
+                    builder.push_text(str);
+                    builder.pop_style_span();
+                }
+                None => builder.push_text(str),
+            },
         }
     };
     // The marker is a separate box, so words in the content don't continue from it.
@@ -1103,6 +1133,8 @@ pub(crate) fn build_inline_layout_into(
             nodes,
             before_id,
             &text_transform,
+            line_height_quirk,
+            root_line_height,
         );
     }
     for child_id in root_node.children.iter().copied() {
@@ -1112,6 +1144,8 @@ pub(crate) fn build_inline_layout_into(
             nodes,
             child_id,
             &text_transform,
+            line_height_quirk,
+            root_line_height,
         );
     }
     if let Some(after_id) = root_node.after() {
@@ -1121,18 +1155,24 @@ pub(crate) fn build_inline_layout_into(
             nodes,
             after_id,
             &text_transform,
+            line_height_quirk,
+            root_line_height,
         );
     }
 
     text_layout.text = builder.build_into(&mut text_layout.layout);
     return;
 
+    /// `own_line_height` is `Some` while the line height quirk has zeroed the current span's
+    /// line-height: it is the line-height the span's own text is laid out with.
     fn build_inline_layout_recursive(
         builder: &mut TreeBuilder<TextBrush>,
         text_transformer: &mut TextTransformer,
         nodes: &crate::NodeTree,
         node_id: NodeId,
         parent_text_transform: &CaseTransform,
+        line_height_quirk: bool,
+        own_line_height: Option<parley::LineHeight>,
     ) {
         let node = &nodes[node_id];
 
@@ -1170,23 +1210,25 @@ pub(crate) fn build_inline_layout_into(
                         // node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
                     }
                     (DisplayOutside::None, DisplayInside::Contents) => {
-                        let whitespace = style.map(|s| {
-                            [
-                                parley::StyleProperty::WhiteSpaceCollapse(
-                                    stylo_to_parley::white_space_collapse(
-                                        s.clone_white_space_collapse(),
-                                    ),
+                        // `vertical-align` is not inherited.
+                        let mut properties = vec![parley::StyleProperty::VerticalAlign(
+                            parley::VerticalAlign::BASELINE,
+                        )];
+                        if let Some(s) = style {
+                            properties.push(parley::StyleProperty::WhiteSpaceCollapse(
+                                stylo_to_parley::white_space_collapse(
+                                    s.clone_white_space_collapse(),
                                 ),
-                                parley::StyleProperty::TextWrapMode(
-                                    stylo_to_parley::text_wrap_mode(s.clone_text_wrap_mode()),
-                                ),
-                            ]
-                        });
-                        builder.push_style_modification_span(
-                            whitespace
-                                .as_ref()
-                                .map_or(&[][..], |styles| styles.as_slice()),
-                        );
+                            ));
+                            properties.push(parley::StyleProperty::TextWrapMode(
+                                stylo_to_parley::text_wrap_mode(s.clone_text_wrap_mode()),
+                            ));
+                        }
+                        // The element has no box: its text is the root's.
+                        if let Some(line_height) = own_line_height {
+                            properties.extend(own_text_style(line_height));
+                        }
+                        builder.push_style_modification_span(&properties);
                         for child_id in node.children.iter().copied() {
                             // node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
                             build_inline_layout_recursive(
@@ -1195,6 +1237,8 @@ pub(crate) fn build_inline_layout_into(
                                 nodes,
                                 child_id,
                                 &text_transform,
+                                line_height_quirk,
+                                None,
                             );
                         }
                         builder.pop_style_span();
@@ -1223,23 +1267,40 @@ pub(crate) fn build_inline_layout_into(
                         } else if *tag_name == local_name!("br") {
                             // node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
                             // TODO: update span id for br spans
-                            builder.push_style_modification_span(&[
-                                parley::StyleProperty::WhiteSpaceCollapse(
-                                    WhiteSpaceCollapse::Preserve,
-                                ),
-                            ]);
+                            let preserve = parley::StyleProperty::WhiteSpaceCollapse(
+                                WhiteSpaceCollapse::Preserve,
+                            );
+                            // A forced break is text: it gives the root's line its strut.
+                            match own_line_height {
+                                Some(line_height) => {
+                                    let [a, b] = own_text_style(line_height);
+                                    builder.push_style_modification_span(&[preserve, a, b])
+                                }
+                                None => builder.push_style_modification_span(&[
+                                    preserve,
+                                    // `vertical-align` is not inherited: the break sits on
+                                    // its parent's baseline.
+                                    parley::StyleProperty::VerticalAlign(
+                                        parley::VerticalAlign::BASELINE,
+                                    ),
+                                ]),
+                            }
                             builder.push_text("\n");
                             builder.pop_style_span();
                             text_transformer.word_break(builder);
                         } else {
                             // node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
-                            let style = node
-                                .primary_styles()
-                                .map(|s| stylo_to_parley::style(node.id, &s))
+                            let stylo_style = node.primary_styles();
+                            let mut style = stylo_style
+                                .as_deref()
+                                .map(|s| stylo_to_parley::style(node.id, s))
                                 .unwrap_or_else(|| parley::TextStyle {
                                     white_space_collapse: WhiteSpaceCollapse::Collapse,
                                     ..Default::default()
                                 });
+                            let own_line_height = stylo_style
+                                .as_deref()
+                                .and_then(|s| quirky_line_height(line_height_quirk, s, &mut style));
 
                             builder.push_style_span(style);
 
@@ -1250,6 +1311,8 @@ pub(crate) fn build_inline_layout_into(
                                     nodes,
                                     before_id,
                                     &text_transform,
+                                    line_height_quirk,
+                                    own_line_height,
                                 );
                             }
 
@@ -1260,6 +1323,8 @@ pub(crate) fn build_inline_layout_into(
                                     nodes,
                                     child_id,
                                     &text_transform,
+                                    line_height_quirk,
+                                    own_line_height,
                                 );
                             }
                             if let Some(after_id) = node.after() {
@@ -1269,6 +1334,8 @@ pub(crate) fn build_inline_layout_into(
                                     nodes,
                                     after_id,
                                     &text_transform,
+                                    line_height_quirk,
+                                    own_line_height,
                                 );
                             }
 
@@ -1303,7 +1370,14 @@ pub(crate) fn build_inline_layout_into(
 
                 let text =
                     text_transformer.transform(&data.content, parent_text_transform, builder);
-                builder.push_text(text);
+                match own_line_height {
+                    Some(line_height) => {
+                        builder.push_style_modification_span(&own_text_style(line_height));
+                        builder.push_text(text);
+                        builder.pop_style_span();
+                    }
+                    None => builder.push_text(text),
+                }
             }
             NodeData::Comment { .. } => {
                 // node.remove_damage(CONSTRUCT_DESCENDENT | CONSTRUCT_FC | CONSTRUCT_BOX);
@@ -1311,4 +1385,61 @@ pub(crate) fn build_inline_layout_into(
             NodeData::Document(_) => unreachable!(),
         }
     }
+}
+
+/// With the line height quirk on, zero `style`'s line-height unless `stylo_style`'s box has
+/// inline-axis padding or border, and return the line-height it had.
+fn quirky_line_height(
+    line_height_quirk: bool,
+    stylo_style: &style::properties::ComputedValues,
+    style: &mut parley::TextStyle<'static, 'static, TextBrush>,
+) -> Option<parley::LineHeight> {
+    if !line_height_quirk {
+        return None;
+    }
+    let padding = stylo_style.get_padding();
+    let border = stylo_style.get_border();
+    let edges = if stylo_style.writing_mode.is_horizontal() {
+        [&padding.padding_left.0, &padding.padding_right.0]
+    } else {
+        [&padding.padding_top.0, &padding.padding_bottom.0]
+    };
+    // The computed width of a `none` border is not zero here.
+    let border_widths = if stylo_style.writing_mode.is_horizontal() {
+        [
+            (&border.border_left_width, border.border_left_style),
+            (&border.border_right_width, border.border_right_style),
+        ]
+    } else {
+        [
+            (&border.border_top_width, border.border_top_style),
+            (&border.border_bottom_width, border.border_bottom_style),
+        ]
+    };
+    // A percentage is of the containing block's width, unknown here; any non-zero one counts.
+    let has_edges = edges.iter().any(|p| {
+        p.maybe_percentage_relative_to(Some(style::values::computed::Length::new(1.0)))
+            .is_none_or(|l| l.px() != 0.0)
+    }) || border_widths
+        .iter()
+        .any(|(w, style)| !style.none_or_hidden() && w.0.to_f32_px() != 0.0);
+    if has_edges {
+        return None;
+    }
+    Some(std::mem::replace(
+        &mut style.line_height,
+        parley::LineHeight::Absolute(0.0),
+    ))
+}
+
+/// The span that a span's own text is laid out in while the line height quirk has zeroed the
+/// span's line-height: the span's real `line_height`, on the span's baseline (its own
+/// `vertical-align`, which a child span would otherwise copy, applies to its box).
+fn own_text_style(
+    line_height: parley::LineHeight,
+) -> [parley::StyleProperty<'static, TextBrush>; 2] {
+    [
+        parley::StyleProperty::LineHeight(line_height),
+        parley::StyleProperty::VerticalAlign(parley::VerticalAlign::BASELINE),
+    ]
 }

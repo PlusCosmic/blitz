@@ -390,6 +390,7 @@ impl BaseDocument {
                         &mut layout,
                         self.viewport.scale(),
                         task.node_id,
+                        self.stylist.quirks_mode(),
                     );
 
                     #[cfg(feature = "parallel-construct")]

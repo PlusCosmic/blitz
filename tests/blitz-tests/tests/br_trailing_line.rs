@@ -106,3 +106,19 @@ fn br_with_trailing_whitespace_is_single_line() {
         "div with <br> + collapsible whitespace should be one line tall"
     );
 }
+
+/// The newline of a `<br>` sits on its parent's baseline: it does not copy the parent's own
+/// `vertical-align` (a cell's `middle`), which shifted it and made its line taller.
+#[test]
+fn br_in_a_middle_aligned_cell_keeps_the_line_height() {
+    let height = |content: &str| {
+        let doc = layout_doc(&format!(
+            r#"<!DOCTYPE html><body style="margin:0"><table style="border-spacing:0"><tr>
+            <td id="c" style="padding:0;vertical-align:middle;line-height:20px">{content}</td>
+            </tr></table></body>"#
+        ));
+        let cell = doc.query_selector("#c").unwrap().unwrap();
+        doc.get_node(cell).unwrap().final_layout().size.height
+    };
+    assert_eq!(height("a<br>b"), 2.0 * height("a"));
+}
