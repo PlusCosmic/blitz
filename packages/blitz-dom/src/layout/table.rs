@@ -121,6 +121,14 @@ impl ColumnCursor {
     }
 }
 
+/// A column's specified width, in the automatic table layout algorithm
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ColumnWidth {
+    Auto,
+    Length(f32),
+    Percent(f32),
+}
+
 #[derive(Debug, Clone)]
 pub struct TableColumn {
     pub node_id: NodeId,
@@ -374,6 +382,31 @@ pub(crate) fn build_table_context(
             }
         }
     } else {
+        // Each column's width before the tracks below replace it: a length, a percentage, or
+        // neither (`auto`, or a `calc()` that counts as such here).
+        let mut column_widths: Vec<ColumnWidth> = column_sizes
+            .iter()
+            .map(|column| match column.max.into_raw().tag() {
+                taffy::CompactLength::LENGTH_TAG => {
+                    ColumnWidth::Length(column.max.into_raw().value())
+                }
+                taffy::CompactLength::PERCENT_TAG => {
+                    ColumnWidth::Percent(column.max.into_raw().value())
+                }
+                _ => ColumnWidth::Auto,
+            })
+            .collect();
+        if resolves_percentages {
+            for (col_idx, percent, _) in &percent_columns {
+                if let Some(width) = column_widths.get_mut(*col_idx as usize) {
+                    *width = match *width {
+                        ColumnWidth::Percent(p) => ColumnWidth::Percent(p.max(*percent)),
+                        _ => ColumnWidth::Percent(*percent),
+                    };
+                }
+            }
+        }
+
         // In the auto table layout algorithm a column's length width is its preferred
         // width: the column still grows to fit the min-content width of the cells that
         // originate in it (see `TableCell::min_width`), and shrinks to it in a table too
@@ -422,6 +455,39 @@ pub(crate) fn build_table_context(
             for (col_idx, percent, extra) in percent_columns {
                 if let Some(column) = column_sizes.get_mut(col_idx as usize) {
                     *column = at_least_content(percent_track(percent, extra));
+                }
+            }
+
+            // A table wider than its columns shares the extra width out over them (CSS 2.1
+            // §17.5.2.2): `auto` columns take it when there are any. Otherwise the columns
+            // with a length width do, in proportion to it, or, when every column has a
+            // percentage, those columns, in proportion to theirs: `minmax(min-content, Nfr)`.
+            let has_auto = column_widths.contains(&ColumnWidth::Auto);
+            let has_length = column_widths
+                .iter()
+                .any(|w| matches!(w, ColumnWidth::Length(_)));
+            let share = |width: &ColumnWidth| match *width {
+                ColumnWidth::Length(w) if has_length => w.max(0.0),
+                ColumnWidth::Percent(p) if !has_length => p.max(0.0),
+                _ => 0.0,
+            };
+            // Flex factors adding up to less than 1 leave part of the width unused, and so would
+            // any of them alone once the others are frozen at their content's width: scale them
+            // so that the smallest is 1.
+            let smallest = column_widths
+                .iter()
+                .map(share)
+                .filter(|share| *share > 0.0)
+                .min_by(f32::total_cmp);
+            if let (false, Some(smallest)) = (has_auto, smallest) {
+                for (column, width) in column_sizes.iter_mut().zip(&column_widths) {
+                    let share = share(width);
+                    if share > 0.0 {
+                        *column = style_helpers::minmax(
+                            style_helpers::min_content(),
+                            style_helpers::fr(share / smallest),
+                        );
+                    }
                 }
             }
         }

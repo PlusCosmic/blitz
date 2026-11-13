@@ -93,3 +93,18 @@ fn a_column_still_grows_to_its_contents() {
     );
     assert_eq!(w, [47.0, 253.0]);
 }
+
+#[test]
+fn widths_narrower_than_the_table_share_out_the_rest_when_nothing_is_auto() {
+    let w = widths(
+        &format!(
+            r#"<body style="margin:0"><table width="600" style="border-spacing:0"><tr>
+            <td id="a" width="100" style="padding:0">{0}</td>
+            <td id="b" width="200" style="padding:0">{0}</td>
+            </tr></table></body>"#,
+            block(10)
+        ),
+        &["a", "b"],
+    );
+    assert_eq!(w, [200.0, 400.0]);
+}

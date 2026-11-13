@@ -103,3 +103,46 @@ fn the_largest_percentage_in_a_column_wins() {
         assert_eq!(doc.get_node(id).unwrap().final_layout().size.width, 120.0);
     }
 }
+
+#[test]
+fn percentage_columns_alone_share_out_the_whole_table() {
+    // One `width="50%"` cell is the whole table: there is no other column to take the rest.
+    let doc = layout(
+        r#"<body style="margin:0"><table width="300" style="border-spacing:0"><tr>
+        <td id="l" width="50%" style="padding:0"></td></tr></table></body>"#,
+    );
+    let id = doc.query_selector("#l").unwrap().expect("#l");
+    assert_eq!(doc.get_node(id).unwrap().final_layout().size.width, 300.0);
+    // Several share it in proportion to their percentages.
+    let w = widths("", "width:10%", "width:20%", "width:30%");
+    assert_eq!(w, (50.0, 100.0, 150.0));
+}
+
+#[test]
+fn a_length_column_takes_what_percentages_leave_when_nothing_is_auto() {
+    let doc = layout(
+        r#"<body style="margin:0"><table width="300" style="border-spacing:0"><tr>
+        <td id="l" width="20%" style="padding:0"></td><td id="r" width="100" style="padding:0"></td>
+        </tr></table></body>"#,
+    );
+    let width = |sel: &str| {
+        let id = doc.query_selector(sel).unwrap().expect(sel);
+        doc.get_node(id).unwrap().final_layout().size.width
+    };
+    assert_eq!((width("#l"), width("#r")), (60.0, 240.0));
+}
+
+#[test]
+fn a_percentage_column_takes_the_rest_when_another_needs_more_than_its_share() {
+    let doc = layout(
+        r#"<body style="margin:0"><table width="300" style="border-spacing:0"><tr>
+        <td id="l" width="80%" style="padding:0"></td>
+        <td id="r" width="20%" style="padding:0"><div style="width:100px;height:4px"></div></td>
+        </tr></table></body>"#,
+    );
+    let width = |sel: &str| {
+        let id = doc.query_selector(sel).unwrap().expect(sel);
+        doc.get_node(id).unwrap().final_layout().size.width
+    };
+    assert_eq!((width("#l"), width("#r")), (200.0, 100.0));
+}
