@@ -76,6 +76,9 @@ pub struct TableCell {
     /// for its columns' widths shrinks them, down to their contents (CSS Tables 3, "outer
     /// max-content width of a table-cell in a constrained column").
     min_width: Option<f32>,
+    /// Whether the cell has a length `height`, which is only its minimum (in [`Self::style`]):
+    /// its contents are measured without it.
+    content_height: bool,
     style: taffy::Style<Atom>,
 }
 
@@ -882,6 +885,14 @@ fn collect_table_cells(
                 }
             }
 
+            // A length `height` is the cell's minimum height: the cell grows to its contents
+            // (`min-height` does not apply to cells, so it is free to carry it).
+            let content_height = style.size.height.tag() == taffy::CompactLength::LENGTH_TAG;
+            if content_height {
+                style.min_size.height = style_helpers::length(style.size.height.value());
+                style.size.height = style_helpers::auto();
+            }
+
             style.size.width = style_helpers::auto();
             cells.push(TableCell {
                 node_id,
@@ -889,6 +900,7 @@ fn collect_table_cells(
                 column: col,
                 colspan,
                 min_width: if is_fixed { None } else { length_width },
+                content_height,
                 style,
             });
 
@@ -981,6 +993,18 @@ impl taffy::LayoutPartialTree for TableTreeWrapper<'_, '_> {
         // `TableCell::min_width`): the cell's own `width` would fix the width of its box,
         // so it is ignored to measure the contents. The width raises the cell's
         // max-content width only: its min-content width stays that of its contents.
+        // Measuring the height of a cell with a length height: the height is a minimum, applied
+        // by the grid (the cell's `min_size`), so the contents are measured without it.
+        if cell.content_height
+            && cell.min_width.is_none()
+            && inputs.known_dimensions.height.is_none()
+        {
+            let inputs = taffy::tree::LayoutInput {
+                sizing_mode: taffy::SizingMode::ContentSize,
+                ..inputs
+            };
+            return self.doc.compute_child_layout(node_id, inputs);
+        }
         if let (Some(min_width), None) = (cell.min_width, inputs.known_dimensions.width) {
             let wants_min_content =
                 inputs.available_space.width == taffy::AvailableSpace::MinContent;

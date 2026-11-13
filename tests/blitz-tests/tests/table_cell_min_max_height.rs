@@ -52,3 +52,12 @@ fn min_height_does_not_grow_a_cell() {
         50.0
     );
 }
+
+#[test]
+fn a_cell_grows_past_its_height_to_its_content() {
+    assert_eq!(cell_height(r#"height="10" style="padding:0""#, BLOCK), 50.0);
+    assert_eq!(
+        cell_height(r#"style="height:10px;padding:5px""#, BLOCK),
+        60.0
+    );
+}
