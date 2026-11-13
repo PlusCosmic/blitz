@@ -956,6 +956,12 @@ pub fn to_taffy_style_in(
     taffy_style
 }
 
+/// Whether `min-height` and `max-height` are ignored: on table cells. CSS 2.1 §17.5.3 leaves
+/// their effect undefined there, and browsers ignore them (a `height` is the cell's minimum).
+pub fn ignores_min_max_height(display: stylo::Display) -> bool {
+    display.inside() == stylo::DisplayInside::TableCell
+}
+
 pub fn to_taffy_style(style: &stylo::ComputedValues) -> taffy::Style<Atom> {
     let display = style.clone_display();
     let pos = style.get_position();
@@ -990,11 +996,19 @@ pub fn to_taffy_style(style: &stylo::ComputedValues) -> taffy::Style<Atom> {
         },
         min_size: taffy::Size {
             width: self::min_size(&pos.min_width),
-            height: self::min_size(&pos.min_height),
+            height: if ignores_min_max_height(display) {
+                taffy::LengthPercentageAuto::auto()
+            } else {
+                self::min_size(&pos.min_height)
+            },
         },
         max_size: taffy::Size {
             width: self::max_size(&pos.max_width),
-            height: self::max_size(&pos.max_height),
+            height: if ignores_min_max_height(display) {
+                taffy::LengthPercentageAuto::auto()
+            } else {
+                self::max_size(&pos.max_height)
+            },
         },
         aspect_ratio: self::aspect_ratio(pos.aspect_ratio),
 
