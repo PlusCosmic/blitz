@@ -295,6 +295,13 @@ impl<'m, 'doc> TreeSink for DocumentHtmlParser<'m, 'doc> {
 
     fn set_quirks_mode(&self, mode: QuirksMode) {
         self.quirks_mode.set(mode);
+        // The tree builder calls this on reading the doctype (or its absence), before any
+        // element: stylesheets and `style` attributes are then parsed in the document's mode.
+        self.mutr().doc.set_quirks_mode(match mode {
+            QuirksMode::Quirks => blitz_dom::QuirksMode::Quirks,
+            QuirksMode::LimitedQuirks => blitz_dom::QuirksMode::LimitedQuirks,
+            QuirksMode::NoQuirks => blitz_dom::QuirksMode::NoQuirks,
+        });
     }
 
     fn add_attrs_if_missing(&self, target: &Self::Handle, attrs: Vec<html5ever::Attribute>) {

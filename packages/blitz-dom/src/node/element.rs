@@ -665,13 +665,18 @@ impl ElementData {
                 })
     }
 
-    pub fn flush_style_attribute(&mut self, guard: &SharedRwLock, url_extra_data: &UrlExtraData) {
+    pub fn flush_style_attribute(
+        &mut self,
+        guard: &SharedRwLock,
+        url_extra_data: &UrlExtraData,
+        quirks_mode: QuirksMode,
+    ) {
         self.style_attribute = self.attr(local_name!("style")).map(|style_str| {
             ServoArc::new(guard.wrap(parse_style_attribute(
                 style_str,
                 url_extra_data,
                 None,
-                QuirksMode::NoQuirks,
+                quirks_mode,
                 CssRuleType::Style,
             )))
         });

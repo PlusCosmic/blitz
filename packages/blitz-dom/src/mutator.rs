@@ -143,7 +143,11 @@ impl DocumentMutator<'_> {
 
     pub fn create_element(&mut self, name: QualName, attrs: Vec<Attribute>) -> NodeId {
         let mut data = ElementData::new(name, attrs);
-        data.flush_style_attribute(self.doc.guard(), &self.doc.url.url_extra_data());
+        data.flush_style_attribute(
+            self.doc.guard(),
+            &self.doc.url.url_extra_data(),
+            self.doc.quirks_mode(),
+        );
 
         let id = self.doc.create_node(NodeData::Element(Box::new(data)));
         let node = self.doc.get_node_mut(id).unwrap();
@@ -360,7 +364,11 @@ impl DocumentMutator<'_> {
         }
 
         if *attr == local_name!("style") {
-            element.flush_style_attribute(&self.doc.guard, &self.doc.url.url_extra_data());
+            element.flush_style_attribute(
+                &self.doc.guard,
+                &self.doc.url.url_extra_data(),
+                self.doc.stylist.quirks_mode(),
+            );
             node.set_restyle_hint(RestyleHint::RESTYLE_STYLE_ATTRIBUTE);
             return;
         }
@@ -485,7 +493,11 @@ impl DocumentMutator<'_> {
         }
 
         if *attr == local_name!("style") {
-            element.flush_style_attribute(&self.doc.guard, &self.doc.url.url_extra_data());
+            element.flush_style_attribute(
+                &self.doc.guard,
+                &self.doc.url.url_extra_data(),
+                self.doc.stylist.quirks_mode(),
+            );
             node.set_restyle_hint(RestyleHint::RESTYLE_STYLE_ATTRIBUTE);
         } else if (tag, attr) == tag_and_attr!("input", "checked") {
             element.set_checkbox_input_checked(false);

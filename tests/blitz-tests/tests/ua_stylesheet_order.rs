@@ -4,7 +4,8 @@
 use blitz_dom::{DocumentConfig, UserAgentStylesheet};
 use blitz_html::HtmlDocument;
 
-const HTML: &str = "<html><body><div style='height: 10px'></div></body></html>";
+// With a doctype: in quirks mode the document adds the quirks sheet to its UA sheets.
+const HTML: &str = "<!DOCTYPE html><html><body><div style='height: 10px'></div></body></html>";
 
 fn body_x(ua_stylesheets: Vec<UserAgentStylesheet>) -> f32 {
     let config = DocumentConfig {

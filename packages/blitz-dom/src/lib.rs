@@ -29,6 +29,8 @@
 //  - `tracing`: Enables tracing support.
 
 pub const DEFAULT_CSS: &str = include_str!("../assets/default.css");
+/// The user-agent stylesheet that also applies in quirks mode.
+pub const QUIRKS_CSS: &str = include_str!("../assets/quirks.css");
 pub const BULLET_FONT: &[u8] = include_bytes!("../assets/moz-bullet-font.otf");
 
 /// The DOM implementation.
@@ -117,6 +119,7 @@ pub fn taffy_node_id(id: NodeId) -> taffy::NodeId {
 pub fn dom_node_id(id: taffy::NodeId) -> NodeId {
     NodeId::from_u64(u64::from(id))
 }
+pub use selectors::matching::QuirksMode;
 pub use style::Atom;
 pub use style::invalidation::element::restyle_hints::RestyleHint;
 pub use style::media_queries::MediaType;

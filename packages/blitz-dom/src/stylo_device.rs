@@ -63,6 +63,7 @@ pub(crate) fn make_device(
     viewport: &Viewport,
     media_type: MediaType,
     font_ctx: Arc<Mutex<FontContext>>,
+    quirks_mode: QuirksMode,
 ) -> Device {
     let (width, height) = viewport.logical_size();
     let viewport_size = euclid::Size2D::new(width, height);
@@ -71,7 +72,7 @@ pub(crate) fn make_device(
 
     Device::new(
         media_type,
-        QuirksMode::NoQuirks,
+        quirks_mode,
         viewport_size,
         device_size,
         device_pixel_ratio,

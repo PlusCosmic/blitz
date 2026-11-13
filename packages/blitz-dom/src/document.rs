@@ -16,7 +16,7 @@ use crate::url::DocumentUrl;
 use crate::util::ImageType;
 use crate::{
     DEFAULT_CSS, DocumentConfig, DocumentMutator, DummyHtmlParserProvider, ElementData,
-    EventDriver, HtmlParserProvider, Node, NodeData, NoopEventHandler, StyleThreading,
+    EventDriver, HtmlParserProvider, Node, NodeData, NoopEventHandler, QUIRKS_CSS, StyleThreading,
     TextNodeData,
 };
 use blitz_traits::devtools::DevtoolSettings;
@@ -100,6 +100,14 @@ impl UserAgentStylesheet {
     pub fn default_sheet() -> Self {
         static SHEET: LazyLock<UserAgentStylesheet> =
             LazyLock::new(|| UserAgentStylesheet::parse(DEFAULT_CSS));
+        SHEET.clone()
+    }
+
+    /// The user-agent stylesheet for quirks mode ([`QUIRKS_CSS`]), parsed once. The document
+    /// adds it itself when its mode is quirks.
+    pub fn quirks_sheet() -> Self {
+        static SHEET: LazyLock<UserAgentStylesheet> =
+            LazyLock::new(|| UserAgentStylesheet::parse(QUIRKS_CSS));
         SHEET.clone()
     }
 
@@ -440,7 +448,12 @@ impl BaseDocument {
 
         let viewport = config.viewport.unwrap_or_default();
         let media_type = config.media_type.unwrap_or_else(MediaType::screen);
-        let device = make_device(&viewport, media_type.clone(), font_ctx.clone());
+        let device = make_device(
+            &viewport,
+            media_type.clone(),
+            font_ctx.clone(),
+            QuirksMode::NoQuirks,
+        );
         let stylist = Stylist::new(device, QuirksMode::NoQuirks);
         let snapshots = SnapshotMap::new();
         let nodes = Box::new(NodeTree::new());
@@ -591,6 +604,38 @@ impl BaseDocument {
 
     pub fn guard(&self) -> &SharedRwLock {
         &self.guard
+    }
+
+    /// The document's mode (no-quirks, limited-quirks or quirks), as the HTML parser chose it
+    /// from the doctype. Stylo parses and matches CSS in this mode, and inline layout applies
+    /// the quirks that depend on it.
+    pub fn quirks_mode(&self) -> QuirksMode {
+        self.stylist.quirks_mode()
+    }
+
+    /// Set the document's mode. Set it before stylesheets and `style` attributes are parsed
+    /// (the HTML parser does, on reading the doctype): it does not re-parse those. In quirks
+    /// mode the document adds the quirks user-agent stylesheet ([`QUIRKS_CSS`]).
+    pub fn set_quirks_mode(&mut self, mode: QuirksMode) {
+        if self.stylist.quirks_mode() == mode {
+            return;
+        }
+        self.stylist.set_quirks_mode(mode);
+        let quirks_sheet = UserAgentStylesheet::quirks_sheet();
+        if mode == QuirksMode::Quirks {
+            self.add_user_agent_stylesheet(quirks_sheet);
+        } else if self.useragent_stylesheets().any(|s| *s == quirks_sheet.0) {
+            self.stylist
+                .remove_stylesheet(quirks_sheet.0, &self.guard.read());
+        }
+        let device = make_device(
+            &self.viewport,
+            self.media_type.clone(),
+            self.font_ctx.clone(),
+            mode,
+        );
+        self.set_stylist_device(device);
+        self.invalidate_inline_contexts();
     }
 
     pub fn tree(&self) -> &NodeTree {
@@ -1200,7 +1245,7 @@ impl BaseDocument {
                 import_depth: 0,
             }),
             None,
-            QuirksMode::NoQuirks,
+            self.stylist.quirks_mode(),
             AllowImportRules::Yes,
         );
 
@@ -2102,6 +2147,7 @@ impl BaseDocument {
             &self.viewport,
             self.media_type.clone(),
             self.font_ctx.clone(),
+            self.stylist.quirks_mode(),
         ));
         self.scroll_viewport_by(0.0, 0.0); // Clamp scroll offset
 

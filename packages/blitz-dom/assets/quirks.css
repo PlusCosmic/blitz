@@ -1,0 +1,12 @@
+/* User-agent rules that apply only in quirks mode, from the HTML Standard's Rendering section
+ * (https://html.spec.whatwg.org/multipage/rendering.html#tables-2): tables do not inherit font
+ * properties, line-height, white-space or text-align from their parent. */
+table {
+  font-weight: initial;
+  font-style: initial;
+  font-variant: initial;
+  font-size: initial;
+  line-height: initial;
+  white-space: initial;
+  text-align: initial;
+}

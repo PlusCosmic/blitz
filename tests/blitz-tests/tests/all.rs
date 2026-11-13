@@ -49,6 +49,7 @@ mod pointer_events;
 mod pointer_leave;
 mod pre_overflow_scroll;
 mod pseudo_element_update;
+mod quirks_mode;
 mod rem_after_viewport_change;
 mod render_blocking_stylesheet;
 mod resize_restyle;

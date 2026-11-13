@@ -11,7 +11,7 @@ use keyboard_types::Modifiers;
 use kurbo::{Affine, Rect as KurboRect};
 use markup5ever::{LocalName, local_name};
 use parley::{BreakReason, Cluster, ClusterSide};
-use selectors::matching::ElementSelectorFlags;
+use selectors::matching::{ElementSelectorFlags, QuirksMode};
 use std::cell::{Cell, RefCell};
 use std::fmt::Write;
 use std::ops::Deref;
@@ -1249,10 +1249,14 @@ impl Node {
         }
     }
 
-    pub fn flush_style_attribute(&mut self, url_extra_data: &UrlExtraData) {
+    pub fn flush_style_attribute(
+        &mut self,
+        url_extra_data: &UrlExtraData,
+        quirks_mode: QuirksMode,
+    ) {
         if let NodeData::Element(ref mut elem_data) = self.data {
             if let Some(guard) = elem_data.guard.clone() {
-                elem_data.flush_style_attribute(&guard, url_extra_data);
+                elem_data.flush_style_attribute(&guard, url_extra_data, quirks_mode);
             }
         }
     }
