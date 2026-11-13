@@ -119,3 +119,11 @@ fn tables_do_not_inherit_font_size_in_quirks_mode() {
     let styled = r#"<style>table { font-size: 40px; line-height: 40px }</style><table id="t" style="border-spacing:0"><tr><td style="padding:0">a</td></tr></table>"#;
     assert_eq!(height(QUIRKS, styled), 40.0);
 }
+
+#[test]
+fn a_cells_height_includes_its_padding_in_quirks_mode() {
+    let cell = r#"<table style="border-spacing:0"><tr><td id="t" style="height:50px;padding:10px;border:2px solid"></td></tr></table>"#;
+    assert_eq!(height(QUIRKS, cell), 50.0);
+    assert_eq!(height(LIMITED, cell), 74.0);
+    assert_eq!(height(STANDARDS, cell), 74.0);
+}

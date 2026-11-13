@@ -1,4 +1,5 @@
 use blitz_traits::node_id::NodeId;
+use selectors::matching::QuirksMode;
 use std::{ops::Range, sync::Arc};
 use style::logical_geometry::WritingMode;
 use style::properties::ComputedValues;
@@ -678,6 +679,7 @@ fn collect_table_cells(
     first_cell_border: &mut Option<ServoArc<Border>>,
     percent_columns: &mut Vec<(u16, f32, f32)>,
 ) {
+    let quirks = doc.quirks_mode() == QuirksMode::Quirks;
     let node = &mut doc.nodes[node_id];
 
     if !node.is_element() {
@@ -889,7 +891,16 @@ fn collect_table_cells(
             // (`min-height` does not apply to cells, so it is free to carry it).
             let content_height = style.size.height.tag() == taffy::CompactLength::LENGTH_TAG;
             if content_height {
-                style.min_size.height = style_helpers::length(style.size.height.value());
+                let mut height = style.size.height.value();
+                // The table cell height box sizing quirk: in quirks mode a cell's `height`
+                // includes its padding and border, as if `box-sizing: border-box` applied to
+                // it. https://quirks.spec.whatwg.org/#the-table-cell-height-box-sizing-quirk
+                if quirks && style.box_sizing == taffy::BoxSizing::ContentBox {
+                    let padding = style.padding.resolve_or_zero(None, resolve_calc_value);
+                    let border = style.border.resolve_or_zero(None, resolve_calc_value);
+                    height = (height - (padding + border).vertical_axis_sum()).max(0.0);
+                }
+                style.min_size.height = style_helpers::length(height);
                 style.size.height = style_helpers::auto();
             }
 
